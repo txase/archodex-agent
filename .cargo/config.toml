@@ -1,0 +1,10 @@
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[target.x86_64-unknown-linux-gnu]
+linker = "x86_64-linux-gnu-gcc"
+rustflags = ["-L", "native=/usr/lib/x86_64-linux-gnu"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+rustflags = ["-L", "native=/usr/lib/aarch64-linux-gnu"]

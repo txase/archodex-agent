@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: archodex-agent-dev
+  labels:
+    app: archodex-agent-dev
+spec:
+  serviceAccountName: archodex-agent
+  containers:
+    - name: dev
+      image: rust:latest
+      imagePullPolicy: Always
+      securityContext:
+        allowPrivilegeEscalation: false
+        privileged: false
+        capabilities:
+          drop:
+            - ALL
+          add:
+            - BPF
+            - PERFMON
+            - SYS_PTRACE
+        seccompProfile:
+          type: Unconfined
+      command:
+        - /bin/sh
+        - -c
+        - 'trap : TERM INT; sleep infinity & wait'
+      env:
+        - name: KUBERNETES_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      readinessProbe: null
+      resources:
+        limits:
+          cpu: '10'
+          memory: '8Gi'
+        requests:
+          cpu: '500m'
+          memory: '1Gi'
+      volumeMounts:
+        - name: archodex-agent-dev
+          mountPath: /root
+  volumes:
+    - name: archodex-agent-dev
+      persistentVolumeClaim:
+        claimName: archodex-agent-dev
+  hostPID: true

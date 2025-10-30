@@ -1,0 +1,162 @@
+# Example Archodex Rules file
+
+Contexts:
+  - Conditions:
+      '{agent.env.GITHUB_ACTIONS}': true
+    ResourceCaptures:
+      - Type: GitHub Service
+        Id: '{agent.env.GITHUB_SERVER_URL}'
+        Contains:
+          - Type: Organization
+            Id: '{agent.env.GITHUB_REPOSITORY_OWNER}'
+            Contains:
+              - Type: Git Repository
+                Id: '{agent.env.GITHUB_REPOSITORY}'
+                Contains:
+                  - Type: GitHub Actions Workflow
+                    Id: '{agent.env.GITHUB_WORKFLOW_REF}'
+          - Type: Actor
+            Id: '{agent.env.GITHUB_ACTOR}'
+          - Type: Actor
+            Id: '{agent.env.GITHUB_TRIGGERING_ACTOR}'
+    Principals:
+      - Resource:
+          - Type: GitHub Service
+            Id: '{agent.env.GITHUB_SERVER_URL}'
+          - Type: Actor
+            Id: '{agent.env.GITHUB_TRIGGERING_ACTOR}'
+        Event: Assumed
+      - Resource:
+          - Type: GitHub Service
+            Id: '{agent.env.GITHUB_SERVER_URL}'
+          - Type: Actor
+            Id: '{agent.env.GITHUB_ACTOR}'
+        Event: Invoked
+      - Resource:
+          - Type: GitHub Service
+            Id: '{agent.env.GITHUB_SERVER_URL}'
+          - Type: Organization
+            Id: '{agent.env.GITHUB_REPOSITORY_OWNER}'
+          - Type: Git Repository
+            Id: '{agent.env.GITHUB_REPOSITORY}'
+          - Type: GitHub Actions Workflow
+            Id: '{agent.env.GITHUB_WORKFLOW_REF}'
+
+Rules:
+  - Hostnames:
+      - Prefixes:
+          - vault.
+        Suffix: .example.com
+    TransportRules:
+      - Http:
+          Request:
+            Methods:
+              - GET
+              - POST
+              - DELETE
+            Routes:
+              - /v1/:secret_mount_path/data/:path+
+              - /v1/:secret_mount_path/metadata/:path+
+              - /v1/:secret_mount_path/:path+
+            IgnoreRoutes:
+              - /v1/auth/*
+              - /v1/sys/*
+          Response:
+            Body:
+              MountType:
+                Path: $.mount_type
+                Value: kv
+          ResourceCaptures:
+            - Type: HashiCorp Vault Service
+              Id: '{tls_server_name}'
+              Contains:
+                - Type: Secrets Engine Mount
+                  Id: '{request.path.secret_mount_path}'
+                  Contains:
+                    - Type: Secret
+                      Id: '{request.path.path}'
+          EventCaptures:
+            - Events:
+                - Types:
+                    - '{request.method | http_method_to_action}'
+                  Resources:
+                    - - Type: HashiCorp Vault Service
+                        Id: '{tls_server_name}'
+                      - Type: Secrets Engine Mount
+                        Id: '{request.path.secret_mount_path}'
+                      - Type: Secret
+                        Id: '{request.path.path}'
+  - Hostnames:
+      - example.com
+    TransportRules:
+      - Http:
+          Request:
+            Methods:
+              - GET
+            Routes:
+              - /:path*
+          ResourceCaptures:
+            - Type: HTTPS Server
+              Id: '{tls_server_name}'
+              Contains:
+                - Type: Route
+                  Id: '/{request.path.path}'
+          EventCaptures:
+            - Events:
+                - Types:
+                    - '{request.method | http_method_to_action}'
+                  Resources:
+                    - - Type: HTTPS Server
+                        Id: '{tls_server_name}'
+                      - Type: Route
+                        Id: '/{request.path.path}'
+
+  - Hostnames:
+      - Suffix: amazonaws.com
+    TransportRules:
+      - Http:
+          Request:
+            Methods:
+              - GET
+            Routes:
+              - /:path*
+          ResourceCaptures:
+            - Type: HTTPS Server
+              Id: '{tls_server_name}'
+              Contains:
+                - Type: Route
+                  Id: '/{request.path.path}'
+          EventCaptures:
+            - Events:
+                - Types:
+                    - '{request.method | http_method_to_action}'
+                  Resources:
+                    - - Type: HTTPS Server
+                        Id: '{tls_server_name}'
+                      - Type: Route
+                        Id: '/{request.path.path}'
+
+  # Run curl -v 'https://www.csm-testcenter.org/csm-eicar.com?transfer=chunked'
+  # to test chunked transfer encoding
+  - Hostnames:
+      - www.csm-testcenter.org
+    TransportRules:
+      - Http:
+          Request:
+            Methods:
+              - GET
+            Routes:
+              - /:path*
+          ResourceCaptures:
+            - Type: HTTPS Server
+              Id: '{tls_server_name}'
+              Contains:
+          EventCaptures:
+            - Events:
+                - Types:
+                    - '{request.method | http_method_to_action}'
+                  Resources:
+                    - - Type: HTTPS Server
+                        Id: '{tls_server_name}'
+                      - Type: Route
+                        Id: '/{request.path.path}'

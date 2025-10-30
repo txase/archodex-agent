@@ -1,0 +1,205 @@
+name: Build archodex-agent Development Container images
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ACT: false
+  AWS_PAGER: ''
+  OCI_REPO: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup package repos
+        run: |-
+          UBUNTU_VERSION=`lsb_release -cs`
+
+          sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc > /dev/null << 'EOF'
+          path-exclude /usr/share/doc/*
+          path-exclude /usr/share/man/*
+          path-exclude /usr/share/info/*
+          EOF
+
+          # Add arm64 package archive sources
+          sudo tee /etc/apt/sources.list.d/ubuntu.sources > /dev/null << EOF
+          Types: deb
+          URIs: http://archive.ubuntu.com/ubuntu/
+          Suites: ${UBUNTU_VERSION} ${UBUNTU_VERSION}-updates ${UBUNTU_VERSION}-backports
+          Components: main universe restricted multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          Architectures: amd64
+
+          Types: deb
+          URIs: http://archive.ubuntu.com/ubuntu/
+          Suites: ${UBUNTU_VERSION}-security
+          Components: main universe restricted multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          Architectures: amd64
+
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports/
+          Suites: ${UBUNTU_VERSION} ${UBUNTU_VERSION}-updates ${UBUNTU_VERSION}-backports ${UBUNTU_VERSION}-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          Architectures: arm64
+          EOF
+
+          # Enable the arm64 architecture
+          sudo dpkg --add-architecture arm64
+
+          sudo apt-get update
+
+      - name: Install development tools and x86_64 library dependencies
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: >-
+            bmake clang-20 gcc-aarch64-linux-gnu libc6-dev-arm64-cross libpolly-20-dev:amd64 libzstd-dev:amd64
+            llvm-20-dev:amd64 mold protobuf-compiler zlib1g-dev
+
+      # The cache-apt-pkgs-action doesn't support multiarch packages yet, so we must manually install cross packages
+      # See: https://github.com/awalsh128/cache-apt-pkgs-action/issues/134
+      - name: Install aarch64 library dependencies
+        run: sudo apt-get install -y --no-install-recommends zlib1g-dev:arm64
+
+      - name: Setup clang, llvm 20, and linkers
+        run: |-
+          sudo ./register_clang_version.sh 20 100
+
+          # <arch>-linux-gnu-gcc expects the mold linker to be at /usr/bin/<arch>-linux-gnu-ld.mold
+          sudo ln -sf /usr/bin/ld.mold /usr/bin/x86_64-linux-gnu-ld.mold
+          sudo ln -sf /usr/bin/ld.mold /usr/bin/aarch64-linux-gnu-ld.mold
+
+      - name: Checkout elftoolchain
+        id: elftoolchain_checkout
+        working-directory: /tmp
+        run: |-
+          if [ ! -d "elftoolchain" ]; then
+            git clone --depth=1 https://github.com/Archodex/elftoolchain.git
+          fi
+          echo "commit=$(git -C elftoolchain rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Cache elftoolchain
+        id: elftoolchain-cache
+        uses: actions/cache@v4
+        with:
+          key: elftoolchain-${{ steps.elftoolchain_checkout.outputs.commit }}
+          path: |-
+            /usr/include/libelf.h
+            /usr/include/gelf.h
+            /usr/lib/x86_64-linux-gnu/libelf.a
+            /usr/lib/x86_64-linux-gnu/libelf_p.a
+            /usr/lib/aarch64-linux-gnu/libelf.a
+            /usr/lib/aarch64-linux-gnu/libelf_p.a
+
+      - name: Build and install elftoolchain
+        if: steps.elftoolchain-cache.outputs.cache-hit != 'true'
+        shell: bash
+        working-directory: /tmp/elftoolchain
+        run: |-
+          sudo mkdir -p /usr/share/man/man3
+
+          for arch in x86_64 aarch64; do
+            git clean -fxd
+            CC=${arch}-linux-gnu-gcc LD=${arch}-linux-gnu-ld pmake SUBDIR=common
+            CC=${arch}-linux-gnu-gcc LD=${arch}-linux-gnu-ld pmake -j$(nproc) SUBDIR=libelf
+            sudo pmake SUBDIR=libelf LIBDIR=/usr/lib/${arch}-linux-gnu NOMAN=yes install
+          done
+
+      - name: Install Rust toolchains
+        uses: moonrepo/setup-rust@v1
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+          components: rustfmt
+          cache-target: target
+          target-dirs: .
+
+      - name: Build binary
+        shell: bash
+        env:
+          # This var tells the libbpf-sys build script where to find the libelf and libz static libraries. This is the
+          # only mechanism available to add the library path when further package build scripts (including the
+          # archodex-agent build.rs build script) are built for the host runner.
+          #
+          # When compiling for a specific target arch, this variable adds the library path after the paths specified via
+          # .cargo/config.toml, meaning the target arch library paths will be used instead.
+          LIBBPF_SYS_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu
+        run: |-
+          set -e -x
+
+          cargo build \
+            --release \
+            --target x86_64-unknown-linux-gnu \
+            --target aarch64-unknown-linux-gnu
+
+          for arch in x86_64 aarch64; do
+            pushd target/${arch}-unknown-linux-gnu/release
+            ${arch}-linux-gnu-objcopy --only-keep-debug archodex-agent archodex-agent.debug
+            ${arch}-linux-gnu-objcopy --strip-debug --strip-unneeded archodex-agent
+            ${arch}-linux-gnu-objcopy --add-gnu-debuglink=archodex-agent.debug archodex-agent
+            popd
+          done
+
+      - name: Archive debug symbols (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: archodex-agent-x86_64-debug-symbols
+          path: target/x86_64-unknown-linux-gnu/release/archodex-agent.debug
+
+      - name: Archive debug symbols (aarch64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: archodex-agent-aarch64-debug-symbols
+          path: target/aarch64-unknown-linux-gnu/release/archodex-agent.debug
+
+      - name: Container metadata
+        if: env.ACT != 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: type=ref,event=branch,prefix=branch-
+
+      - name: Log in to the GitHub Container Registry
+        if: env.ACT != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Calculate OCI image repo
+        id: repo
+        run: echo "OCI_REPO=ghcr.io/${GITHUB_REPOSITORY@L}" >> $GITHUB_ENV
+
+      - name: Build and push container images
+        id: build-images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          tags: |-
+            ${{
+              github.ref == 'refs/heads/main' && env.OCI_REPO ||
+              steps.meta.outputs.tags
+            }}
+          labels: ${{ env.ACT != 'true' && steps.meta.outputs.labels }}
+          push: ${{ env.ACT != 'true' }}

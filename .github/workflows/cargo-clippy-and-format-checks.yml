@@ -1,0 +1,103 @@
+name: Cargo Clippy and Format Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-type-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup package repos
+        run: |-
+          sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc > /dev/null << 'EOF'
+          path-exclude /usr/share/doc/*
+          path-exclude /usr/share/man/*
+          path-exclude /usr/share/info/*
+          EOF
+
+          sudo apt-get update
+
+      - name: Install development tools
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: bmake gcc-aarch64-linux-gnu libc6-dev-arm64-cross mold protobuf-compiler
+
+      - name: Checkout elftoolchain
+        id: elftoolchain_checkout
+        working-directory: /tmp
+        run: |-
+          if [ ! -d "elftoolchain" ]; then
+            git clone --depth=1 https://github.com/Archodex/elftoolchain.git
+          fi
+          echo "commit=$(git -C elftoolchain rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Cache elftoolchain
+        id: elftoolchain-cache
+        uses: actions/cache@v4
+        with:
+          key: elftoolchain-${{ steps.elftoolchain_checkout.outputs.commit }}
+          path: |-
+            /usr/include/libelf.h
+            /usr/include/gelf.h
+            /usr/lib/x86_64-linux-gnu/libelf.a
+            /usr/lib/x86_64-linux-gnu/libelf_p.a
+            /usr/lib/aarch64-linux-gnu/libelf.a
+            /usr/lib/aarch64-linux-gnu/libelf_p.a
+
+      - name: Build and install elftoolchain
+        if: steps.elftoolchain-cache.outputs.cache-hit != 'true'
+        shell: bash
+        working-directory: /tmp/elftoolchain
+        run: |-
+          sudo mkdir -p /usr/share/man/man3
+
+          for arch in x86_64 aarch64; do
+            git clean -fxd
+            CC=${arch}-linux-gnu-gcc LD=${arch}-linux-gnu-ld pmake SUBDIR=common
+            CC=${arch}-linux-gnu-gcc LD=${arch}-linux-gnu-ld pmake -j$(nproc) SUBDIR=libelf
+            sudo pmake SUBDIR=libelf LIBDIR=/usr/lib/${arch}-linux-gnu NOMAN=yes install
+          done
+
+      - name: Install Rust toolchain
+        uses: moonrepo/setup-rust@v1
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+          components: clippy,rustfmt
+          cache-target: target
+          target-dirs: .
+
+      - name: Cargo Clippy Check
+        env:
+          # This var tells the libbpf-sys build script where to find the libelf and libz static libraries. This is the
+          # only mechanism available to add the library path when further package build scripts (including the
+          # archodex-agent build.rs build script) are built for the host runner.
+          #
+          # When compiling for a specific target arch, this variable adds the library path after the paths specified via
+          # .cargo/config.toml, meaning the target arch library paths will be used instead.
+          LIBBPF_SYS_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu
+        run:
+          cargo clippy --keep-going --all-targets --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+          -- --deny warnings --deny clippy::pedantic
+
+      - name: Cargo Format Check
+        run: cargo fmt --all --check
+
+      - uses: actions/setup-node@v4
+
+      - run: npx prettier --check .

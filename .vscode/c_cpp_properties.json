@@ -1,0 +1,12 @@
+{
+  "configurations": [
+    {
+      "name": "Linux",
+      "includePath": ["${workspaceFolder}/src/bpf", "${workspaceFolder}/target/**/libbpf-sys-*/out/include"],
+      "cStandard": "c23",
+      "cppStandard": "c++23",
+      "compilerArgs": ["-Wextra", "-Wno-unused-parameter", "-Werror", "-target", "bpf", "-mcpu=v4"]
+    }
+  ],
+  "version": 4
+}

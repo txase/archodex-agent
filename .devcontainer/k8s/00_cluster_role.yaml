@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: archodex-agent
+rules:
+  - verbs:
+      - get
+      - list
+      - watch
+    apiGroups:
+      - ''
+      - apps
+      - batch
+    resources:
+      - cronjobs
+      - daemonsets
+      - deployments
+      - jobs
+      - namespaces
+      - pods
+      - replicasets
+      - services
+      - statefulsets

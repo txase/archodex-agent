@@ -1,0 +1,17 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: archodex-dev
+options:
+  k3d:
+    disableLoadbalancer: true
+  k3s:
+    extraArgs:
+      - arg: --cluster-init
+        nodeFilters:
+          - server:0
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+  runtime:
+    hostPidMode: true

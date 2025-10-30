@@ -1,0 +1,62 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug executable 'archodex-agent network'",
+      "cargo": {
+        "args": ["build", "--bin=archodex-agent", "--package=archodex-agent"],
+        "env": {
+          "LIBBPF_SYS_LIBRARY_PATH": "/usr/lib/aarch64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+        },
+        "filter": {
+          "name": "archodex-agent",
+          "kind": "bin"
+        }
+      },
+      "args": ["network"],
+      "env": {
+        "COLORTERM": "truecolor",
+        "RUST_BACKTRACE": "1",
+        // These are default values useful for development that may be overridden in the .env file
+        "VAULT_ADDR": "https://vault.vault:8200",
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_REPOSITORY_OWNER": "example-org",
+        "GITHUB_REPOSITORY": "example-repo",
+        "GITHUB_WORKFLOW_REF": "example-org/example-repo/.github/workflows/deploy.yml@refs/heads/main",
+        "GITHUB_ACTOR": "alice",
+        "GITHUB_TRIGGERING_ACTOR": "bob"
+      },
+      // Additional environment variables may be defined here, see template file
+      "envFile": "${workspaceFolder}/.vscode/.env"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug executable 'archodex-agent secrets github'",
+      "cargo": {
+        "args": ["build", "--bin=archodex-agent", "--package=archodex-agent"],
+        "env": {
+          "LIBBPF_SYS_LIBRARY_PATH": "/usr/lib/aarch64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+        },
+        "filter": {
+          "name": "archodex-agent",
+          "kind": "bin"
+        }
+      },
+      "args": ["secrets", "github"],
+      "env": {
+        "COLORTERM": "truecolor",
+        "RUST_BACKTRACE": "1"
+      },
+      // Additional environment variables must be defined here, see template file
+      "envFile": "${workspaceFolder}/.vscode/.env",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

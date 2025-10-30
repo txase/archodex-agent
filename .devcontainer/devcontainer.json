@@ -1,0 +1,44 @@
+{
+  "name": "archodex-agent-dev",
+  "image": "rust:latest",
+  "mounts": [
+    // Cache dependencies to speed up container rebuilds
+    "type=volume,source=archodex-dev-apt-archives,target=/var/cache/apt/archives",
+    "type=volume,source=archodex-dev-apt-lists,target=/var/lib/apt/lists",
+    "type=volume,source=archodex-dev-rustup,target=/usr/local/rustup",
+    // Cache cargo artifacts to speed up builds across container rebuilds
+    "type=volume,source=archodex-dev-cargo-registry,target=/usr/local/cargo/registry",
+    "type=volume,source=archodex-agent-dev-cargo-git,target=/usr/local/cargo/git",
+    "type=volume,source=archodex-agent-dev-elftoolchain,target=/root/elftoolchain",
+    "type=volume,source=archodex-agent-dev-target,target=/workspaces/archodex-agent/target"
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": "true",
+      "upgradePackages": "true"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      // Moby isn't supported on Debian Trixie, the base image for `rust:latest`
+      "moby": false
+    }
+  },
+  "postCreateCommand": ".devcontainer/init.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "github.vscode-github-actions",
+        "ms-vscode.cpptools",
+        "pbkit.vscode-pbkit",
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        "xaver.clang-format"
+      ]
+    }
+  },
+  // The following capabilities allow running the agent's eBPF programs inside the devcontainer
+  "capAdd": ["BPF", "PERFMON", "SYS_PTRACE"],
+  // The following arguments are passed to the container runtime to allow the agent running in the devcontainer to track processes
+  "runArgs": ["--pid=host"]
+}
