@@ -1,7 +1,6 @@
 # Technical Details
 
-> [!IMPORTANT]
-> Many details described in this document are patented or patent-pending technology.
+> Note: Many details described in this document are patented or patent-pending technology.
 
 ## BPF-Level Instrumentation
 
